@@ -56,18 +56,28 @@ def secondary_process(soup):
         salary = ""
     summary = soup.find("div", {"class": "jobsearch-jobDescriptionText"}).text
 
+    try:
+        for el in soup.find_all('div', attrs={'class': 'jobsearch-CompanyInfoWithoutHeaderImage'}):
+            el_descendants = el.descendants
+            for d in el_descendants:
+                if d.name == 'div':
+                    last_div_text = d.text
+        location = last_div_text
+    except:
+        location = ""
+
     job = {
         "title": title,
         "company": company,
         "salary": salary,
         "summary": summary,
+        "location": location        
     }
 
     return job
 
 
 def primary_process(soup, joblist, locale):
-    html = soup.prettify("utf-8")
     html_content = soup.prettify("utf-8").decode("utf-8")
     substring = '"link":"/company/'
 
