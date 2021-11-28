@@ -57,10 +57,12 @@ def secondary_process(soup):
     summary = soup.find("div", {"class": "jobsearch-jobDescriptionText"}).text
 
     try:
-        for el in soup.find_all('div', attrs={'class': 'jobsearch-CompanyInfoWithoutHeaderImage'}):
+        for el in soup.find_all(
+            "div", attrs={"class": "jobsearch-CompanyInfoWithoutHeaderImage"}
+        ):
             el_descendants = el.descendants
             for d in el_descendants:
-                if d.name == 'div':
+                if d.name == "div":
                     last_div_text = d.text
         location = last_div_text
     except:
@@ -71,7 +73,7 @@ def secondary_process(soup):
         "company": company,
         "salary": salary,
         "summary": summary,
-        "location": location        
+        "location": location,
     }
 
     return job
