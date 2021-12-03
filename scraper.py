@@ -9,12 +9,15 @@ import pandas as pd
 import requests
 import selenium.webdriver.support.ui as ui
 from bs4 import BeautifulSoup
+from models import Base, JobModel
 from selenium import webdriver
 from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.common.keys import Keys
+from sqlalchemy import create_engine, delete, insert, select
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm.session import Session, sessionmaker
 
 from user_agents import user_agent_list
-
 
 APP_DIR = Path(__file__).parent
 log = logging.getLogger()
@@ -23,7 +26,8 @@ log = logging.getLogger()
 def primary_extract(page, locale, city, radius, must_contain):
     assert isinstance(locale, str)
 
-    url = f"https://{locale}.indeed.com/jobs?q=python+developer&l={city}&start={page}&radius={radius}&as_any={must_contain}"
+    # url = f"https://{locale}.indeed.com/jobs?q=python+developer&l={city}&start={page}&radius={radius}&as_any={must_contain}"
+    url = f"https://{locale}.indeed.com/jobs?q=python&l={city}&start={page}&radius={radius}&as_any={must_contain}"
     headers = user_agent_list[randint(0, len(user_agent_list) - 1)]
     r = requests.get(url, headers)
     soup = BeautifulSoup(r.content, "html.parser")
@@ -43,18 +47,32 @@ def secondary_extract(url, joblist):
 
 
 def secondary_process(soup):
-    title = soup.find(
-        "h1",
-        {"class": "icl-u-xs-mb--xs icl-u-xs-mt--none jobsearch-JobInfoHeader-title"},
-    ).text.strip()
-    company = soup.find(
-        "div", {"class": "icl-u-lg-mr--sm icl-u-xs-mr--xs"}
-    ).text.strip()
+    try:
+        title = soup.find(
+            "h1",
+            {
+                "class": "icl-u-xs-mb--xs icl-u-xs-mt--none jobsearch-JobInfoHeader-title"
+            },
+        ).text.strip()
+    except AttributeError:
+        title = ""
+
+    try:
+        company = soup.find(
+            "div", {"class": "icl-u-lg-mr--sm icl-u-xs-mr--xs"}
+        ).text.strip()
+    except AttributeError:
+        company = ""
+
     try:
         salary = soup.find("span", {"class": "icl-u-xs-mr--xs"}).text.strip()
-    except:
+    except AttributeError:
         salary = ""
-    summary = soup.find("div", {"class": "jobsearch-jobDescriptionText"}).text
+
+    try:
+        summary = soup.find("div", {"class": "jobsearch-jobDescriptionText"}).text
+    except AttributeError:
+        summary = ""
 
     try:
         for el in soup.find_all(
@@ -65,7 +83,7 @@ def secondary_process(soup):
                 if d.name == "div":
                     last_div_text = d.text
         location = last_div_text
-    except:
+    except AttributeError:
         location = ""
 
     job = {
@@ -127,11 +145,11 @@ def open_urls(urls):
 @click.command()
 @click.option(
     "--locale",
-    default="nl",
+    default="de",
     help="this will be put in the url to search on the specific national indeed site",
 )
 @click.option("--count", default=50, help="number of job ads to process")
-@click.option("--city", default="Amsterdam", help="i have no idea what this is")
+@click.option("--city", default="Berlin", help="i have no idea what this is")
 @click.option("--radius", default=25)
 @click.option("--must-contain", default="")
 def main(locale: str, count: int, city: str, radius: int, must_contain: str):
@@ -150,8 +168,76 @@ def main(locale: str, count: int, city: str, radius: int, must_contain: str):
         if link != "" and "https://" in link:
             proper_links.append(link)
 
-    df.to_csv(f"job_offers_{city}_{radius}_miles_{must_contain}.csv")
+    now = str(datetime.now()).replace(" ", "_").replace(":", "_").replace(".", "_")
+
+    out_string = f"job_offers_{city}_{radius}_miles_{must_contain}"
+    df.to_csv(f"{out_string}_{now}.csv")
+
+    save_to_db(joblist, out_string, now)
+
     # open_urls(proper_links)
+
+
+def save_to_db(joblist, out_string, now):
+    my_sqlops = SqlOps(joblist, out_string, now)
+    my_sqlops.sql_add()
+
+
+class SqlOps(object):
+    def __init__(self, joblist, out_string, now):
+        self.conn_string = f"sqlite:///indeed_jobs__{out_string}.sqlite3"
+        self.engine = create_engine(self.conn_string)
+        self.joblist = joblist
+        self.now = now
+
+    def sql_add(self):
+        Base.metadata.create_all(self.engine)
+
+        new_jobs = []
+        rollback = False
+
+        for j in self.joblist:
+            try:
+
+                Session = sessionmaker(bind=self.engine)
+                session = Session()
+
+                job = JobModel(
+                    title=j["title"],
+                    company=j["company"],
+                    salary=j["salary"],
+                    summary=j["summary"],
+                    location=j["location"],
+                    apply_url=j["apply_url"],
+                    added_at=self.now,
+                )
+                session.add(job)
+                session.commit()
+            except IntegrityError as e:
+                log.error(e)
+                session.rollback()
+                rollback = True
+            finally:
+                session.close()
+
+            if not rollback:
+                new_jobs.append(
+                    [
+                        j["title"],
+                        j["company"],
+                        j["salary"],
+                        j["summary"],
+                        j["location"],
+                        j["apply_url"],
+                    ]
+                )
+
+        print("new jobs:")
+        log.info("new jobs:")
+        log.info("--------")
+        for new_job in new_jobs:
+            print("new job:", new_job)
+            log.info(f"new job: {new_job}")
 
 
 if __name__ == "__main__":
