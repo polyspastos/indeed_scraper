@@ -74,6 +74,7 @@ def secondary_process(soup):
     except AttributeError:
         summary = ""
 
+    last_div_text = ''
     try:
         for el in soup.find_all(
             "div", attrs={"class": "jobsearch-CompanyInfoWithoutHeaderImage"}
