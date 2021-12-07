@@ -12,6 +12,6 @@ class JobModel(Base):
     company = Column(String, nullable=False)
     salary = Column(String)
     summary = Column(String)
-    location = Column(String, nullable=False, unique=True)
+    location = Column(String, nullable=False)
     apply_url  = Column(String, unique=True)
     added_at = Column(String)
